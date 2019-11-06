@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+
+<!--
+Copyright © 2018 Pilz GmbH & Co. KG
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<launch>
+
+  <!-- The "sim" argument controls whether we connect to a Simulated or Real robot -->
+  <arg name="sim" default="true" />
+  
+  <!-- Control a supported gripper, e.g. 'pg70'.
+       Note: Please include the gripper model into your application URDF yourself. -->
+  <arg name="gripper" value="" />
+
+  <!-- Send urdf to parameter server -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro --inorder '$(find prbt_default_application)/urdf/my_first_application.xacro'" />
+
+  <!-- Bringup the planner including environment collision checking -->
+  <include file="$(find prbt_moveit_config)/launch/move_group.launch">
+    <arg name="fake_execution" value="false" />
+    <arg name="load_robot_description" value="false" />
+    <arg name="gripper" value="$(arg gripper)" />
+
+    <arg name="pipeline" value="pilz_command_planner" /><!-- Choose planning pipeline -->
+    <!-- <arg name="capabilities" value="" /> --> <!-- additional capabilites (space seperated) -->
+    <!-- <arg name="disable_capabilities" value="" /> --> <!-- inhibit capabilites (space seperated) -->
+  </include>
+
+  <!-- The semantic description that corresponds to the URDF. -->
+  <!-- <param name="robot_description_semantic" command="$(find xacro)/xacro -&#45;inorder
+               $(find prbt_default_application)/config/prbt.srdf.xacro" /> -->
+
+  <!-- Run the "real robot" interface nodes -->
+  <!--   - this includes: robot_state, canopen, and sto nodes -->
+  <group unless="$(arg sim)">
+    <include file="$(find prbt_support)/launch/robot.launch">
+      <arg name="load_robot_description" value="false" />
+      <arg name="gripper" value="$(arg gripper)" />
+
+      <!-- Safe-torque-off-input from the safety controller is read to brake the robot before power-off
+           The signal is read via modbus and you can configure the modbus server ip -->
+      <!-- <arg name="sto" value="pnoz" /> -->
+      <!-- <arg name="sto_modbus_server_ip" value="192.168.0.10" /> -->
+
+      <!-- Set the name of the config file for canopen_motor_node. If you want to change settings, copy the yaml
+           file into your package and set canopen_config to your new config file path.
+           See http://wiki.ros.org/canopen_chain_node for available configuration options. -->
+      <!-- <arg name="canopen_config" value="$(find prbt_default_application)/config/manipulator_driver.yaml" /> -->
+
+      <!-- If you defined more controllers, add them to this list -->
+      <!-- <arg name="spawn_controllers"
+           value="manipulator_joint_trajectory_controller manipulator_joint_state_controller" /> -->
+    </include>
+    <!-- Define additional controllers, see http://wiki.ros.org/joint_trajectory_controller?distro=melodic#Controller_configuration_examples -->
+    <!-- <rosparam ns="prbt" command="load"
+                   file="$(find prbt_default_application)/config/my_controller.yaml" /> -->
+
+    <!-- To override a single parameter (e.g. name of can device), or define your own controllers,
+         use rosparam override:-->
+    <!-- <rosparam param="/prbt/driver/bus/device">can2</rosparam> -->
+
+    <!-- Homing of pg70-gripper: Enable referencing procedure during init -->
+    <!-- <rosparam param="/prbt/driver/nodes/prbt_gripper_finger_left_joint/dcf_overlay">
+      {"6502" : "99", "6098" : "34"}
+    </rosparam> -->
+  </group>
+
+  <!-- Run the robot simulator and action interface nodes -->
+  <group if="$(arg sim)">
+    <!-- Publish the robot state (tf transforms) -->
+    <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+
+    <!-- We do not have a robot connected, so publish fake joint states -->
+    <node name="fake_joint_driver" pkg="fake_joint_driver" type="fake_joint_driver_node"/>
+
+    <rosparam file="$(find prbt_support)/config/manipulator_controller.yaml" />
+    <rosparam param="/manipulator_joint_trajectory_controller/type">position_controllers/JointTrajectoryController</rosparam>
+    <rosparam param="/move_group/controller_list">[{name: "manipulator_joint_trajectory_controller/", action_ns: follow_joint_trajectory, type: FollowJointTrajectory, joints: [prbt_joint_1, prbt_joint_2, prbt_joint_3, prbt_joint_4, prbt_joint_5, prbt_joint_6] } ]</rosparam>
+
+  <!-- Load and start joint trajecotory controller -->
+  <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false" args="manipulator_joint_state_controller manipulator_joint_trajectory_controller"/>
+
+  </group>
+
+
+  <!-- startup application script with state-machine-based or similar procedural control -->
+  <node name="my_application" pkg="prbt_default_application" type="myFirstApplication.py" />
+
+</launch>
+
